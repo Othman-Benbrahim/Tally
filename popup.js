@@ -59,6 +59,14 @@ const elCxList      = document.getElementById("connexion-list");
 const elJournalInfo = document.getElementById("journal-info");
 const elJournalSeal = document.getElementById("journal-seal");
 const btnExportJournal = document.getElementById("btn-export-journal");
+const elSectionConsent = document.getElementById("section-consent");
+const elConsentToggle  = document.getElementById("consent-toggle");
+const elConsentLabel   = document.getElementById("consent-label");
+const elConsentHint    = document.getElementById("consent-hint");
+
+// Plateformes de consentement supportées (hôte -> nom du CMP).
+// Le refus automatique n'est proposé que sur ces sites, et reste opt-in.
+const PLATEFORMES_CONSENT = { "doctissimo.fr": "Didomi" };
 
 // Hôte de la page courante, mémorisé pour les actions bloquer/débloquer.
 let currentPageHost = null;
@@ -186,6 +194,44 @@ function render(state) {
   renderRespawns(state.respawns || []);
   renderBlocs(state.blocs || []);
   renderConnexions(state.connexions || []);
+  renderConsent();
+}
+
+
+// ── Consentement (refus automatique via l'API du CMP, opt-in, par site) ─────
+function plateformeConsent(host) {
+  if (!host) return null;
+  for (const k in PLATEFORMES_CONSENT) {
+    if (host === k || host.endsWith("." + k)) return { key: k, cmp: PLATEFORMES_CONSENT[k] };
+  }
+  return null;
+}
+
+function renderConsent() {
+  const p = plateformeConsent(currentPageHost);
+  if (!p) { elSectionConsent.style.display = "none"; return; }
+
+  elSectionConsent.style.display = "block";
+  elConsentLabel.textContent = "Refuser automatiquement le consentement (" + p.cmp + ") sur " + p.key;
+
+  browser.storage.local.get("consentAutoReject").then(function (r) {
+    const map = (r && r.consentAutoReject) || {};
+    elConsentToggle.checked = !!map[p.key];
+  }).catch(function () {});
+
+  elConsentToggle.onchange = function () {
+    browser.storage.local.get("consentAutoReject").then(function (r) {
+      const map = (r && r.consentAutoReject) || {};
+      map[p.key] = elConsentToggle.checked;
+      return browser.storage.local.set({ consentAutoReject: map });
+    }).then(function () {
+      elConsentHint.textContent = elConsentToggle.checked
+        ? "Activé — recharge la page pour l'appliquer (refus réel via " + p.cmp + ")."
+        : "Désactivé — recharge la page.";
+    }).catch(function (e) {
+      afficherErreur("Réglage impossible : " + (e && e.message ? e.message : e));
+    });
+  };
 }
 
 

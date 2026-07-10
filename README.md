@@ -112,9 +112,17 @@ Extension distribuée sous **GPL-3.0**.
 
 ---
 
+### Refus automatique de consentement (« patte blanche »)
+Sur les plateformes supportées, l'extension propose (opt-in, par site) de **refuser automatiquement** le consentement en pilotant l'**API officielle du CMP** — pas en fabriquant un cookie synthétique. Le CMP génère lui-même un consentement valide : aucun cookie malformé, refus réel, et l'on n'appelle jamais l'équivalent « tout accepter ».
+
+- **Supporté :** `doctissimo.fr` (CMP **Didomi**, via `setUserDisagreeToAll()`).
+- N'agit que si un consentement est réellement à collecter (`shouldConsentBeCollected`), pour respecter un choix déjà exprimé.
+- Activation dans le popup (section « Consentement »), puis rechargement de la page.
+- Si l'API du CMP change ou est absente, le pilote ne fait rien (`try/catch`) — il ne casse jamais le site.
+
 ## Feuille de route
 
-- **Synthèse de consentement (« patte blanche »)** — écrire un cookie de consentement synthétique « tout refusé » pour éviter la ré-affichage des bannières, au lieu de simplement bloquer. **Délibérément non embarqué ici** : c'est spécifique à chaque plateforme (TCF, Cookiebot, OneTrust, Didomi), et un cookie mal formé pourrait perturber un site. À construire comme module isolé et opt-in, plateforme par plateforme, et toujours pour *refuser* — jamais pour feindre d'accepter.
+- **Autres CMP** — étendre le refus automatique à Cookiebot, OneTrust, TCF générique… plateforme par plateforme, chacune avec son API, toujours pour *refuser*, jamais pour feindre d'accepter.
 - **Ancrage temporel externe** du journal (voir limites).
 - **Rafraîchissement automatique** des référentiels embarqués.
 

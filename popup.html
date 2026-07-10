@@ -102,6 +102,19 @@
       text-align: center;
     }
 
+    /* ── Consentement ────────────────────────────────────────────────────── */
+    #section-consent { margin-bottom: 4px; }
+    .consent-row {
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+      cursor: pointer;
+      padding: 6px 0;
+    }
+    .consent-row input { margin-top: 2px; accent-color: var(--ok); }
+    #consent-label { font-size: 12px; color: var(--text); }
+    .consent-hint { font-size: 10px; color: var(--text-soft); margin-top: 2px; }
+
     .section-title {
       font-size: 10px;
       font-weight: 600;
@@ -499,6 +512,15 @@
 
   <main>
     <div id="message">Chargement…</div>
+
+    <div id="section-consent" style="display:none;">
+      <div class="section-title">Consentement</div>
+      <label class="consent-row">
+        <input type="checkbox" id="consent-toggle" />
+        <span id="consent-label"></span>
+      </label>
+      <div class="consent-hint" id="consent-hint">Refuse tout via l'API de la plateforme — refus réel, jamais une fausse acceptation.</div>
+    </div>
     <div id="section-signals" style="display:none;">
       <div class="section-title">Signaux de fingerprinting détectés</div>
       <div id="signal-list"></div>
