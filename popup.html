@@ -1,0 +1,557 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <title>Observatoire</title>
+  <style>
+
+    *, *::before, *::after {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    :root {
+      --bg:        #0e1117;
+      --bg-panel:  #161b22;
+      --bg-item:   #1c2128;
+      --border:    #30363d;
+      --text:      #e6edf3;
+      --text-soft: #8b949e;
+      --accent:    #58a6ff;
+      --warn:      #f0883e;
+      --danger:    #f85149;
+      --ok:        #3fb950;
+      --mono:      "IBM Plex Mono", "Fira Mono", "Consolas", monospace;
+      --sans:      "Inter", system-ui, sans-serif;
+    }
+
+    /* Dimensions explicites : garantit que Firefox donne une taille au popup
+       même si le JavaScript échoue avant d'avoir rempli le contenu. */
+    html {
+      width: 420px;
+    }
+    body {
+      width: 420px;
+      min-height: 160px;
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--sans);
+      font-size: 13px;
+      line-height: 1.5;
+    }
+
+    /* Bandeau d'erreur : normalement caché. Rendu visible par popup.js si une
+       exception survient. C'est ce qui transforme un popup blanc en message
+       lisible. */
+    #error {
+      display: none;
+      padding: 10px 14px;
+      background: #3d1418;
+      color: var(--danger);
+      font-family: var(--mono);
+      font-size: 11px;
+      white-space: pre-wrap;
+      word-break: break-word;
+      border-bottom: 1px solid var(--danger);
+    }
+
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 14px;
+      background: var(--bg-panel);
+      border-bottom: 1px solid var(--border);
+    }
+    header h1 {
+      font-size: 13px;
+      font-weight: 600;
+      letter-spacing: .06em;
+      text-transform: uppercase;
+      color: var(--accent);
+    }
+    #probe-status {
+      font-family: var(--mono);
+      font-size: 11px;
+      color: var(--text-soft);
+    }
+    #probe-status.ok     { color: var(--ok); }
+    #probe-status.failed { color: var(--danger); }
+
+    #current-url {
+      padding: 8px 14px;
+      background: var(--bg-panel);
+      border-bottom: 1px solid var(--border);
+      font-family: var(--mono);
+      font-size: 11px;
+      color: var(--text-soft);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    main {
+      padding: 12px 14px;
+    }
+
+    #message {
+      color: var(--text-soft);
+      font-style: italic;
+      padding: 16px 0;
+      text-align: center;
+    }
+
+    .section-title {
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      color: var(--text-soft);
+      margin-bottom: 8px;
+      padding-bottom: 4px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    #signal-list {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .signal-item {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 4px 10px;
+      padding: 8px 10px;
+      background: var(--bg-item);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+    }
+    .signal-name {
+      font-family: var(--mono);
+      font-size: 12px;
+      color: var(--warn);
+      font-weight: 600;
+    }
+    .signal-count {
+      font-family: var(--mono);
+      font-size: 11px;
+      color: var(--text-soft);
+      text-align: right;
+      white-space: nowrap;
+    }
+    .signal-detail {
+      font-size: 11px;
+      color: var(--text-soft);
+      grid-column: 1 / -1;
+    }
+    .signal-frames {
+      font-size: 10px;
+      color: var(--text-soft);
+      grid-column: 1 / -1;
+      font-family: var(--mono);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .no-signal {
+      padding: 10px;
+      background: var(--bg-item);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      color: var(--ok);
+      font-size: 12px;
+    }
+
+    /* ── Section cookies ─────────────────────────────────────────────────── */
+    #cookie-list {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .cookie-item {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 3px 8px;
+      padding: 8px 10px;
+      background: var(--bg-item);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+    }
+    .cookie-name {
+      font-family: var(--mono);
+      font-size: 12px;
+      color: var(--text);
+      font-weight: 600;
+      word-break: break-all;
+    }
+    .cookie-domain {
+      font-family: var(--mono);
+      font-size: 10px;
+      color: var(--text-soft);
+      grid-column: 1 / -1;
+      word-break: break-all;
+    }
+    .cookie-script {
+      font-family: var(--mono);
+      font-size: 10px;
+      color: var(--text-soft);
+      grid-column: 1 / -1;
+      word-break: break-all;
+      opacity: .8;
+    }
+    /* badges d'origine et de partie */
+    .badges {
+      grid-column: 1 / -1;
+      display: flex;
+      gap: 5px;
+      margin-top: 2px;
+    }
+    .badge {
+      font-family: var(--mono);
+      font-size: 9px;
+      letter-spacing: .04em;
+      text-transform: uppercase;
+      padding: 1px 6px;
+      border-radius: 3px;
+      border: 1px solid var(--border);
+    }
+    .badge.http    { color: var(--accent); border-color: var(--accent); }
+    .badge.js      { color: var(--warn);   border-color: var(--warn); }
+    .badge.inconnu { color: var(--text-soft); }
+    .badge.tierce  { color: var(--danger); border-color: var(--danger); }
+    .badge.premiere{ color: var(--text-soft); }
+    /* badges de catégorie */
+    .badge.cat-advertising   { color: var(--danger); border-color: var(--danger); }
+    .badge.cat-analytics     { color: var(--warn);   border-color: var(--warn); }
+    .badge.cat-social        { color: var(--accent); border-color: var(--accent); }
+    .badge.cat-fingerprinting{ color: var(--danger); border-color: var(--danger); }
+    .badge.cat-cryptomining  { color: var(--danger); border-color: var(--danger); }
+    .badge.cat-content       { color: var(--text-soft); }
+    .badge.cat-email         { color: var(--warn); border-color: var(--warn); }
+    .badge.cat-antifraud     { color: var(--text-soft); }
+    .badge.cat-consent       { color: var(--text-soft); }
+    .badge.cat-inconnu       { color: var(--text-soft); }
+
+    .cookie-owner {
+      font-family: var(--mono);
+      font-size: 10px;
+      color: var(--text-soft);
+      grid-column: 1 / -1;
+    }
+    .cookie-inference {
+      font-size: 10px;
+      color: var(--text-soft);
+      grid-column: 1 / -1;
+      font-style: italic;
+    }
+    .cookie-duration {
+      font-family: var(--mono);
+      font-size: 9px;
+      color: var(--text-soft);
+    }
+    .cookie-duration.longue { color: var(--warn); }
+
+    #btn-export {
+      font-size: 11px;
+      background: transparent;
+      color: var(--ok);
+      border: 1px solid var(--ok);
+      border-radius: 4px;
+      padding: 3px 10px;
+      cursor: pointer;
+      margin-right: 6px;
+    }
+    #btn-export:hover     { background: rgba(63,185,80,.1); }
+    #btn-export:disabled  { opacity: .4; cursor: default; }
+
+    .footer-actions {
+      display: flex;
+      align-items: center;
+    }
+
+    .btn-delete {
+      font-size: 11px;
+      background: transparent;
+      color: var(--danger);
+      border: 1px solid var(--danger);
+      border-radius: 4px;
+      padding: 2px 8px;
+      cursor: pointer;
+      white-space: nowrap;
+      align-self: start;
+    }
+    .btn-delete:hover    { background: rgba(248,81,73,.12); }
+    .btn-delete:disabled { opacity: .4; cursor: default; }
+
+    .cookie-count-note {
+      font-size: 11px;
+      color: var(--text-soft);
+      margin-bottom: 8px;
+    }
+
+    /* ── Section candidats ───────────────────────────────────────────────── */
+    #candidate-list {
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+      margin-bottom: 10px;
+    }
+    .candidate-item {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 2px 8px;
+      padding: 7px 10px;
+      background: var(--bg-item);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+    }
+    .candidate-name {
+      font-family: var(--mono);
+      font-size: 12px;
+      color: var(--text);
+      word-break: break-all;
+    }
+    .candidate-freq {
+      font-family: var(--mono);
+      font-size: 10px;
+      color: var(--ok);
+      text-align: right;
+      white-space: nowrap;
+    }
+    .candidate-meta {
+      grid-column: 1 / -1;
+      font-family: var(--mono);
+      font-size: 10px;
+      color: var(--text-soft);
+    }
+    .candidate-actions {
+      grid-column: 1 / -1;
+      display: flex;
+      gap: 6px;
+      margin-top: 4px;
+    }
+    .btn-cand {
+      font-size: 10px;
+      background: transparent;
+      color: var(--text-soft);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 2px 8px;
+      cursor: pointer;
+    }
+    .btn-cand:hover        { background: rgba(139,148,158,.12); }
+    .btn-cand.ignore       { color: var(--warn); border-color: var(--warn); }
+    .btn-cand.ignore:hover { background: rgba(240,136,62,.12); }
+
+    /* ── Journal (intégrité) ─────────────────────────────────────────────── */
+    #section-journal {
+      margin-top: 14px;
+      padding-top: 10px;
+      border-top: 1px solid var(--border);
+    }
+    #journal-status {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+    }
+    #journal-info {
+      font-family: var(--mono);
+      font-size: 10px;
+      color: var(--text-soft);
+    }
+    #journal-seal {
+      font-family: var(--mono);
+      font-size: 10px;
+    }
+    #journal-seal.ok     { color: var(--ok); }
+    #journal-seal.broken { color: var(--danger); }
+    #btn-export-journal {
+      font-size: 10px;
+      background: transparent;
+      color: var(--accent);
+      border: 1px solid var(--accent);
+      border-radius: 4px;
+      padding: 2px 8px;
+      cursor: pointer;
+    }
+    #btn-export-journal:hover { background: rgba(88,166,255,.1); }
+    .badge.wildcard { color: var(--warn); border-color: var(--warn); }
+
+    #btn-export-candidates {
+      font-size: 11px;
+      width: 100%;
+      background: transparent;
+      color: var(--ok);
+      border: 1px solid var(--ok);
+      border-radius: 4px;
+      padding: 6px 10px;
+      cursor: pointer;
+    }
+    #btn-export-candidates:hover    { background: rgba(63,185,80,.1); }
+    #btn-export-candidates:disabled { opacity: .4; cursor: default; }
+
+    /* ── Respawns ────────────────────────────────────────────────────────── */
+    #respawn-list { display: flex; flex-direction: column; gap: 6px; }
+    .respawn-item {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 3px 8px;
+      padding: 8px 10px;
+      background: #2a1416;
+      border: 1px solid var(--danger);
+      border-radius: 4px;
+    }
+    .respawn-name { font-family: var(--mono); font-size: 12px; color: var(--danger); font-weight: 600; word-break: break-all; }
+    .respawn-meta { grid-column: 1 / -1; font-family: var(--mono); font-size: 10px; color: var(--text-soft); word-break: break-all; }
+    .btn-block {
+      font-size: 11px; background: transparent; color: var(--danger);
+      border: 1px solid var(--danger); border-radius: 4px; padding: 2px 8px;
+      cursor: pointer; white-space: nowrap; align-self: start;
+    }
+    .btn-block:hover    { background: rgba(248,81,73,.12); }
+    .btn-block:disabled { opacity: .4; cursor: default; }
+
+    /* ── Sources bloquées ────────────────────────────────────────────────── */
+    #bloc-list { display: flex; flex-direction: column; gap: 5px; }
+    .bloc-item {
+      display: flex; justify-content: space-between; align-items: center; gap: 8px;
+      padding: 6px 10px; background: var(--bg-item);
+      border: 1px solid var(--border); border-radius: 4px;
+    }
+    .bloc-pattern { font-family: var(--mono); font-size: 10px; color: var(--text-soft); word-break: break-all; }
+    .btn-unblock {
+      font-size: 10px; background: transparent; color: var(--accent);
+      border: 1px solid var(--accent); border-radius: 4px; padding: 2px 8px;
+      cursor: pointer; white-space: nowrap;
+    }
+    .btn-unblock:hover { background: rgba(88,166,255,.1); }
+
+    /* ── Connexions tierces ──────────────────────────────────────────────── */
+    #connexion-list { display: flex; flex-direction: column; gap: 4px; }
+    .connexion-item {
+      display: grid; grid-template-columns: 1fr auto; gap: 2px 8px;
+      padding: 6px 10px; background: var(--bg-item);
+      border: 1px solid var(--border); border-radius: 4px;
+    }
+    .connexion-host { font-family: var(--mono); font-size: 11px; color: var(--text); word-break: break-all; }
+    .connexion-stat { font-family: var(--mono); font-size: 10px; color: var(--text-soft); text-align: right; white-space: nowrap; }
+    .connexion-meta { grid-column: 1 / -1; font-family: var(--mono); font-size: 9px; color: var(--text-soft); }
+    .connexion-actions { grid-column: 1 / -1; margin-top: 3px; }
+    .connexion-actions.blocked {
+      font-family: var(--mono); font-size: 9px; color: var(--danger);
+    }
+    .btn-block-cx {
+      font-size: 10px; background: transparent; color: var(--danger);
+      border: 1px solid var(--danger); border-radius: 4px; padding: 2px 8px;
+      cursor: pointer;
+    }
+    .btn-block-cx:hover    { background: rgba(248,81,73,.12); }
+    .btn-block-cx:disabled { opacity: .4; cursor: default; }
+    /* blocage préventif : sur les domaines déjà filtrés/échoués — atténué */
+    .btn-block-cx-prev {
+      font-size: 10px; background: transparent; color: var(--text-soft);
+      border: 1px dashed var(--text-soft); border-radius: 4px; padding: 2px 8px;
+      cursor: pointer;
+    }
+    .btn-block-cx-prev:hover    { background: rgba(139,148,158,.12); color: var(--danger); border-color: var(--danger); }
+    .btn-block-cx-prev:disabled { opacity: .4; cursor: default; }
+
+    footer {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 8px 14px;
+      border-top: 1px solid var(--border);
+      background: var(--bg-panel);
+    }
+    #frame-count {
+      font-family: var(--mono);
+      font-size: 11px;
+      color: var(--text-soft);
+    }
+    #btn-refresh {
+      font-size: 11px;
+      background: transparent;
+      color: var(--accent);
+      border: 1px solid var(--accent);
+      border-radius: 4px;
+      padding: 3px 10px;
+      cursor: pointer;
+    }
+    #btn-refresh:hover { background: rgba(88,166,255,.1); }
+
+  </style>
+</head>
+<body>
+
+  <!-- Bandeau d'erreur, caché par défaut -->
+  <div id="error"></div>
+
+  <header>
+    <h1>Observatoire</h1>
+    <span id="probe-status">—</span>
+  </header>
+
+  <div id="current-url">—</div>
+
+  <main>
+    <div id="message">Chargement…</div>
+    <div id="section-signals" style="display:none;">
+      <div class="section-title">Signaux de fingerprinting détectés</div>
+      <div id="signal-list"></div>
+    </div>
+
+    <div id="section-cookies" style="display:none;">
+      <div class="section-title">Cookies posés sur cette page</div>
+      <div class="cookie-count-note" id="cookie-note"></div>
+      <div id="cookie-list"></div>
+    </div>
+
+    <div id="section-candidates" style="display:none;">
+      <div class="section-title">Candidats à contribution (Open Cookie Database)</div>
+      <div class="cookie-count-note" id="candidate-note"></div>
+      <div id="candidate-list"></div>
+      <button id="btn-export-candidates">Exporter candidats (.csv PR)</button>
+    </div>
+
+    <div id="section-respawns" style="display:none;">
+      <div class="section-title">⚠ Respawns détectés</div>
+      <div class="cookie-count-note">Cookies revenus après ta suppression, avec leur réanimateur.</div>
+      <div id="respawn-list"></div>
+    </div>
+
+    <div id="section-blocs" style="display:none;">
+      <div class="section-title">Sources bloquées sur ce site</div>
+      <div id="bloc-list"></div>
+    </div>
+
+    <div id="section-connexions" style="display:none;">
+      <div class="section-title">Connexions tierces</div>
+      <div class="cookie-count-note" id="connexion-note"></div>
+      <div id="connexion-list"></div>
+    </div>
+
+    <div id="section-journal">
+      <div class="section-title">Journal d'intégrité</div>
+      <div id="journal-status">
+        <span id="journal-info">—</span>
+        <span id="journal-seal">—</span>
+        <button id="btn-export-journal">Exporter (.json)</button>
+      </div>
+    </div>
+  </main>
+
+  <footer>
+    <span id="frame-count"></span>
+    <div class="footer-actions">
+      <button id="btn-export">Exporter .md</button>
+      <button id="btn-refresh">Actualiser</button>
+    </div>
+  </footer>
+
+  <script src="popup.js"></script>
+</body>
+</html>

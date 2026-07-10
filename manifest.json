@@ -1,0 +1,44 @@
+{
+  "manifest_version": 2,
+  "name": "Observatoire",
+  "version": "0.5.0",
+  "description": "Observatoire local de vie privée : détecte le fingerprinting, catégorise et supprime les cookies au cas par cas, repère les respawns et bloque leur réanimateur, journalise le tout de façon infalsifiable. N'envoie aucune donnée hors du navigateur.",
+
+  "permissions": [
+    "<all_urls>",
+    "tabs",
+    "cookies",
+    "webRequest",
+    "webRequestBlocking",
+    "storage"
+  ],
+
+  "browser_action": {
+    "default_title": "Observatoire",
+    "default_popup": "popup.html"
+  },
+
+  "background": {
+    "scripts": ["reference-db.js", "cookie-names-db.js", "background.js"],
+    "persistent": true
+  },
+
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content-hook.js"],
+      "run_at": "document_start",
+      "all_frames": true,
+      "match_about_blank": true
+    }
+  ],
+
+  "web_accessible_resources": ["hook-page.js"],
+
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "observatoire@visiondufutur.local",
+      "strict_min_version": "115.0"
+    }
+  }
+}
