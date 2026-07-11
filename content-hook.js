@@ -40,6 +40,26 @@
 })();
 
 
+// ── 1bis. Activation de l'empoisonnement anti-fingerprinting (opt-in) ─────────
+// Lecture (asynchrone) du réglage par site. Si la protection est activée pour
+// cet hôte, on demande à hook-page.js de fausser les valeurs lues. La détection
+// reste active dans tous les cas ; seule la falsification est conditionnelle.
+(function activerProtectionFp() {
+  var host = location.hostname.replace(/^www\./, "");
+  browser.storage.local.get("fpPoison").then(function (r) {
+    var map = (r && r.fpPoison) || {};
+    var actif = Object.keys(map).some(function (k) {
+      return map[k] && (host === k || host.endsWith("." + k));
+    });
+    if (actif) {
+      // On n'envoie QUE l'activation. hook-page.js ignore toute désactivation
+      // par message : une page ne peut pas désactiver la protection.
+      window.postMessage({ _obs_cfg: true, poison: true }, location.origin);
+    }
+  }).catch(function () {});
+})();
+
+
 // ── 2. Réception des messages de hook-page.js ─────────────────────────────────
 window.addEventListener("message", function (event) {
 

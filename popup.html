@@ -526,6 +526,14 @@
       <div id="signal-list"></div>
     </div>
 
+    <div id="section-fpprotect" style="display:none;">
+      <label class="consent-row">
+        <input type="checkbox" id="fp-toggle" />
+        <span id="fp-label">Protéger contre le fingerprinting sur ce site (empoisonnement)</span>
+      </label>
+      <div class="consent-hint" id="fp-hint">Fausse les valeurs lues (canvas, GPU, audio) sans casser le site. Le site continue de tourner, mais l'empreinte récoltée est inexploitable.</div>
+    </div>
+
     <div id="section-cookies" style="display:none;">
       <div class="section-title">Cookies posés sur cette page</div>
       <div class="cookie-count-note" id="cookie-note"></div>

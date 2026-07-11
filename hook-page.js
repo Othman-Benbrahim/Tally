@@ -37,10 +37,49 @@
     }, "*");
   }
 
+  // ══════════════════════════════════════════════════════════════════════════
+  // EMPOISONNEMENT ANTI-FINGERPRINTING (opt-in par site)
   // --------------------------------------------------------------------------
-  // Remplace proto[methode] par une version instrumentée.
-  // On conserve la référence à l'original AVANT le remplacement pour pouvoir
-  // déléguer sans modifier le comportement de la page.
+  // POISON reste false par défaut. Le content script l'active en envoyant un
+  // message _obs_cfg si l'utilisateur a activé la protection pour ce site.
+  // SÉCURITÉ : on n'honore QUE l'activation. Une page ne peut jamais DÉSACTIVER
+  // la protection via un message forgé (on ignore poison:false).
+  // La détection (envoyer) reste TOUJOURS active — la protection ne fait que
+  // fausser en plus la valeur lue par le traceur, sans casser le site.
+  // ══════════════════════════════════════════════════════════════════════════
+  let POISON = false;
+  window.addEventListener("message", function (e) {
+    if (e.source !== window) return;
+    const d = e.data;
+    if (d && d._obs_cfg === true && d.poison === true) POISON = true;
+  });
+
+  // Bruit déterministe par session : la MÊME lecture donne le MÊME résultat
+  // faussé pendant la session (une empreinte stable-mais-fausse est plus
+  // crédible et casse la déduplication du traceur qu'un bruit qui change).
+  const SEED = (Math.random() * 4294967296) >>> 0;
+  function bruit(i) {
+    let x = (SEED ^ (i * 2654435761)) >>> 0;
+    x ^= x << 13; x >>>= 0; x ^= x >>> 17; x ^= x << 5; x >>>= 0;
+    return (x % 3) - 1; // -1, 0 ou +1
+  }
+  function clamp(v) { return v < 0 ? 0 : (v > 255 ? 255 : v); }
+
+  // Natives capturées AVANT tout remplacement (usage interne pour toDataURL).
+  const C2D = (typeof CanvasRenderingContext2D !== "undefined") ? CanvasRenderingContext2D.prototype : null;
+  const nativeGetImageData = C2D ? C2D.getImageData : null;
+  const nativePutImageData = C2D ? C2D.putImageData : null;
+
+  // Perturbe une partie des pixels d'un ImageData (±1 sur le rouge, 1 pixel/4).
+  function poisonnerPixels(data) {
+    for (let i = 0; i < data.length; i += 16) {
+      const n = bruit(i);
+      if (n) data[i] = clamp(data[i] + n);
+    }
+  }
+
+  // --------------------------------------------------------------------------
+  // Remplace proto[methode] par une version instrumentée (détection only).
   // --------------------------------------------------------------------------
   function hooker(proto, methode, signal) {
     if (!proto || typeof proto[methode] !== "function") return;
@@ -51,25 +90,56 @@
     };
   }
 
-  // ── Canvas fingerprinting ─────────────────────────────────────────────────
-  // Technique la plus répandue : dessiner du texte hors-écran et lire les
-  // pixels — le rendu varie selon le GPU, les pilotes et les polices installées.
-  hooker(HTMLCanvasElement.prototype,      "toDataURL",   "canvas.toDataURL");
-  hooker(HTMLCanvasElement.prototype,      "toBlob",      "canvas.toBlob");
-  hooker(CanvasRenderingContext2D.prototype, "getImageData", "canvas.getImageData");
+  // ── Canvas fingerprinting (détection + empoisonnement) ────────────────────
+  if (typeof HTMLCanvasElement !== "undefined") {
+    // getImageData : après lecture native, on bruite les pixels renvoyés.
+    if (C2D && typeof C2D.getImageData === "function") {
+      const orig = C2D.getImageData;
+      C2D.getImageData = function () {
+        envoyer("canvas.getImageData");
+        const img = orig.apply(this, arguments);
+        if (POISON && img && img.data) poisonnerPixels(img.data);
+        return img;
+      };
+    }
 
-  // ── WebGL fingerprinting ──────────────────────────────────────────────────
-  // getParameter est appelé constamment par tout rendu WebGL légitime.
-  // On ne signale QUE les constantes UNMASKED_* (37445 et 37446) qui exposent
-  // le modèle de GPU — l'identifiant le plus stable et le plus exploité.
+    // toDataURL / toBlob : on bruite le canvas 2D AVANT sérialisation, via les
+    // natives (pour ne pas repasser par notre hook getImageData). Sans effet
+    // sur les canvas WebGL (pas de contexte 2D) — ceux-là sont couverts plus bas.
+    function hookSerial(methode, signal) {
+      if (typeof HTMLCanvasElement.prototype[methode] !== "function") return;
+      const original = HTMLCanvasElement.prototype[methode];
+      HTMLCanvasElement.prototype[methode] = function () {
+        envoyer(signal);
+        if (POISON && nativeGetImageData && nativePutImageData && this.width && this.height) {
+          try {
+            const ctx = this.getContext && this.getContext("2d");
+            if (ctx) {
+              const img = nativeGetImageData.call(ctx, 0, 0, this.width, this.height);
+              poisonnerPixels(img.data);
+              nativePutImageData.call(ctx, img, 0, 0);
+            }
+          } catch (e) { /* canvas non lisible (CORS) ou WebGL : on laisse tel quel */ }
+        }
+        return original.apply(this, arguments);
+      };
+    }
+    hookSerial("toDataURL", "canvas.toDataURL");
+    hookSerial("toBlob", "canvas.toBlob");
+  }
+
+  // ── WebGL fingerprinting (détection + mensonge sur le GPU) ─────────────────
   function hookWebGL(proto, signal) {
     if (!proto || typeof proto.getParameter !== "function") return;
     const original = proto.getParameter;
     proto.getParameter = function (pname) {
-      // 37445 = UNMASKED_VENDOR_WEBGL
-      // 37446 = UNMASKED_RENDERER_WEBGL
+      // 37445 = UNMASKED_VENDOR_WEBGL, 37446 = UNMASKED_RENDERER_WEBGL
       if (pname === 37445 || pname === 37446) {
         envoyer(signal, "modèle GPU");
+        if (POISON) {
+          // On ne ment que sur ces deux paramètres : le rendu n'est pas affecté.
+          return pname === 37445 ? "Google Inc." : "ANGLE (Generic, Generic Renderer)";
+        }
       }
       return original.apply(this, arguments);
     };
@@ -77,12 +147,30 @@
   hookWebGL(window.WebGLRenderingContext  && WebGLRenderingContext.prototype,  "webgl.getParameter");
   hookWebGL(window.WebGL2RenderingContext && WebGL2RenderingContext.prototype, "webgl2.getParameter");
 
-  // ── Audio fingerprinting ──────────────────────────────────────────────────
-  // Un contexte audio hors-ligne produit une sortie qui varie selon la pile
-  // audio de la machine. Signal à pondérer : les lecteurs légitimes l'utilisent
-  // aussi.
-  hooker(window.AnalyserNode  && AnalyserNode.prototype,  "getFloatFrequencyData", "audio.getFloatFrequencyData");
-  hooker(window.AudioBuffer   && AudioBuffer.prototype,   "getChannelData",        "audio.getChannelData");
+  // ── Audio fingerprinting (détection + bruit inaudible) ─────────────────────
+  if (window.AnalyserNode && typeof AnalyserNode.prototype.getFloatFrequencyData === "function") {
+    const orig = AnalyserNode.prototype.getFloatFrequencyData;
+    AnalyserNode.prototype.getFloatFrequencyData = function (arr) {
+      envoyer("audio.getFloatFrequencyData");
+      const r = orig.apply(this, arguments);
+      if (POISON && arr && arr.length) {
+        for (let i = 0; i < arr.length; i += 1) arr[i] += bruit(i) * 1e-5;
+      }
+      return r;
+    };
+  }
+  if (window.AudioBuffer && typeof AudioBuffer.prototype.getChannelData === "function") {
+    const orig = AudioBuffer.prototype.getChannelData;
+    AudioBuffer.prototype.getChannelData = function () {
+      envoyer("audio.getChannelData");
+      const data = orig.apply(this, arguments);
+      if (POISON && data && data.length) {
+        // Bruit épars et inaudible (~1e-7) — imperceptible, casse l'empreinte.
+        for (let i = 0; i < data.length; i += 100) data[i] += bruit(i) * 1e-7;
+      }
+      return data;
+    };
+  }
 
   // ── Attribution des cookies posés en JavaScript ───────────────────────────
   // On remplace le SETTER de document.cookie. Quand un script fait

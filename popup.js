@@ -63,6 +63,9 @@ const elSectionConsent = document.getElementById("section-consent");
 const elConsentToggle  = document.getElementById("consent-toggle");
 const elConsentLabel   = document.getElementById("consent-label");
 const elConsentHint    = document.getElementById("consent-hint");
+const elSectionFp      = document.getElementById("section-fpprotect");
+const elFpToggle       = document.getElementById("fp-toggle");
+const elFpHint         = document.getElementById("fp-hint");
 
 // Plateformes de consentement supportées (hôte -> nom du CMP).
 // Le refus automatique n'est proposé que sur ces sites, et reste opt-in.
@@ -195,6 +198,36 @@ function render(state) {
   renderBlocs(state.blocs || []);
   renderConnexions(state.connexions || []);
   renderConsent();
+  renderFpProtect();
+}
+
+
+// ── Protection anti-fingerprinting (empoisonnement, opt-in par site) ────────
+function renderFpProtect() {
+  // Proposée sur tout site http(s) réel (pas les pages internes).
+  if (!currentPageHost) { elSectionFp.style.display = "none"; return; }
+  elSectionFp.style.display = "block";
+
+  var host = currentPageHost.replace(/^www\./, "");
+
+  browser.storage.local.get("fpPoison").then(function (r) {
+    var map = (r && r.fpPoison) || {};
+    elFpToggle.checked = !!map[host];
+  }).catch(function () {});
+
+  elFpToggle.onchange = function () {
+    browser.storage.local.get("fpPoison").then(function (r) {
+      var map = (r && r.fpPoison) || {};
+      map[host] = elFpToggle.checked;
+      return browser.storage.local.set({ fpPoison: map });
+    }).then(function () {
+      elFpHint.textContent = elFpToggle.checked
+        ? "Activé — recharge la page. Les valeurs d'empreinte seront faussées."
+        : "Désactivé — recharge la page.";
+    }).catch(function (e) {
+      afficherErreur("Réglage impossible : " + (e && e.message ? e.message : e));
+    });
+  };
 }
 
 
