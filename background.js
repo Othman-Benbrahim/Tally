@@ -33,7 +33,8 @@ function ensureTab(tabId) {
       framesSeen: new Set(),
       cookieOrigins: new Map(),
       cookieDomains: new Set(),
-      connections: new Map()
+      connections: new Map(),
+      utiqHits: 0
     });
   }
   return perTab.get(tabId);
@@ -46,7 +47,8 @@ function resetTab(tabId, url) {
     framesSeen: new Set(),
     cookieOrigins: new Map(),
     cookieDomains: new Set(),
-    connections: new Map()
+    connections: new Map(),
+      utiqHits: 0
   });
 }
 
@@ -271,7 +273,7 @@ function serialiserMap(m, fn) {
 
 async function chargerEtatPersistant() {
   try {
-    const r = await browser.storage.local.get(["deletedLedger", "respawnEvents", "blocklist", "candidatsIgnores"]);
+    const r = await browser.storage.local.get(["deletedLedger", "respawnEvents", "blocklist", "candidatsIgnores", "blocUtiq", "utiqSites"]);
     if (r.deletedLedger) {
       for (const k in r.deletedLedger) deletedLedger.set(k, r.deletedLedger[k]);
     }
@@ -291,6 +293,11 @@ async function chargerEtatPersistant() {
     if (Array.isArray(r.candidatsIgnores)) {
       r.candidatsIgnores.forEach(function (k) { candidatsIgnores.add(k); });
     }
+    // Défaut : protection Utiq activée si jamais réglée.
+    blocUtiq = (r.blocUtiq === undefined) ? true : !!r.blocUtiq;
+    if (Array.isArray(r.utiqSites)) {
+      r.utiqSites.forEach(function (s) { utiqSites.add(s); });
+    }
   } catch (e) {}
 }
 
@@ -308,7 +315,9 @@ async function flushEtatPersistant() {
         };
       }),
       blocklist: serialiserMap(blocklist, function (s) { return Array.from(s); }),
-      candidatsIgnores: Array.from(candidatsIgnores)
+      candidatsIgnores: Array.from(candidatsIgnores),
+      blocUtiq: blocUtiq,
+      utiqSites: Array.from(utiqSites)
     });
   } catch (e) { persistSale = true; }
 }
@@ -373,6 +382,88 @@ function motifCorrespond(motif, url, host) {
   if (motif.indexOf("host:") === 0) {
     const h = motif.slice(5);
     return host === h || host.endsWith("." + h);
+  }
+  return false;
+}
+
+
+// ============================================================================
+// PISTAGE RÉSEAU — Utiq / TrustPid (blocage intégré, activable)
+// ----------------------------------------------------------------------------
+// Utiq (ex-TrustPid) est un traceur opéré par les opérateurs télécom : un
+// identifiant persistant établi au niveau réseau. Contrairement à un domaine
+// tiers quelconque, c'est un acteur NOMMÉ, sans fonction légitime — le bloquer
+// ne casse aucun site. On le traite comme une règle intégrée, pas comme une
+// liste globale de type uBlock.
+//
+// Trois vecteurs couverts :
+//   1. Domaines Utiq directs (utiq.com, utiqcontent.com, trustpid.com, …).
+//   2. Le script chargeur, où qu'il soit hébergé (…/utiqLoader.js), y compris
+//      en first-party (ex. tmi.orange.fr/utiqLoader.js).
+//   3. CNAME cloaking : un sous-domaine first-party qui pointe (CNAME) vers
+//      l'infra Utiq. Démasqué via browser.dns, uniquement pour les sous-domaines
+//      du site visité (là où le cloaking se cache) — pour ne pas tout résoudre.
+// ============================================================================
+
+const UTIQ_DOMAINES = [
+  "utiq.com", "utiq.fr", "utiq.de", "utiq.es", "utiq.it",
+  "utiqcontent.com", "trustpid.com"
+];
+let blocUtiq = true;                 // activé par défaut (aucun risque de casse)
+const utiqCloaked = new Set();       // hôtes first-party démasqués (CNAME -> Utiq)
+const cnameVus = new Set();          // cache des hôtes déjà résolus
+const utiqSites = new Set();         // sites (hôtes de page) où Utiq a été détecté
+
+function hostEstUtiq(h) {
+  if (!h) return false;
+  h = h.toLowerCase();
+  return UTIQ_DOMAINES.some(function (d) { return h === d || h.endsWith("." + d); });
+}
+function urlEstLoaderUtiq(u) {
+  return /utiqloader\.js/i.test(u || "");
+}
+
+// Démasquage CNAME hors-bande : ne bloque pas la requête courante, mais si
+// l'hôte pointe vers Utiq, les requêtes SUIVANTES vers cet hôte seront bloquées.
+function verifierCnameUtiq(host) {
+  if (cnameVus.has(host)) return;
+  cnameVus.add(host);
+  if (!browser.dns || !browser.dns.resolve) return;
+  browser.dns.resolve(host, ["canonical_name"]).then(function (res) {
+    const cn = res && res.canonicalName ? res.canonicalName.toLowerCase() : "";
+    if (cn && hostEstUtiq(cn)) {
+      utiqCloaked.add(host);
+      journaliser("utiq-cname-demasque", { host: host, canonical: cn });
+    }
+  }).catch(function () {});
+}
+
+// Décision de blocage Utiq pour une requête. Renvoie true si la requête doit
+// être annulée.
+function bloquerRequeteUtiq(details, reqHost, pageHost) {
+  const estUtiq = hostEstUtiq(reqHost) || utiqCloaked.has(reqHost) || urlEstLoaderUtiq(details.url);
+
+  if (estUtiq) {
+    // DÉTECTION (indépendante du blocage) : on mémorise que ce site utilise
+    // Utiq, pour l'afficher — y compris d'emblée aux visites suivantes.
+    if (pageHost && !utiqSites.has(pageHost)) {
+      utiqSites.add(pageHost);
+      marquerPersist();
+      journaliser("utiq-site-detecte", { site: pageHost, via: reqHost });
+    }
+    // BLOCAGE (seulement si activé).
+    if (blocUtiq) {
+      const rec = ensureTab(details.tabId);
+      rec.utiqHits = (rec.utiqHits || 0) + 1;
+      return true;
+    }
+    return false;
+  }
+
+  // Démasquage CNAME, uniquement pour un sous-domaine du site visité (le vecteur
+  // de cloaking) — pas pour tous les tiers. Alimente aussi la détection.
+  if (pageHost && reqHost !== pageHost && memeSiteApprox(reqHost, pageHost)) {
+    verifierCnameUtiq(reqHost);
   }
   return false;
 }
@@ -548,6 +639,11 @@ browser.webRequest.onBeforeRequest.addListener(
     const pageHost = hoteDe(details.documentUrl) || hoteDe(details.originUrl)
                    || hoteDe(tabUrls.get(details.tabId));
 
+    // 0) Pistage réseau Utiq (règle intégrée, prioritaire).
+    if (bloquerRequeteUtiq(details, reqHost, pageHost)) {
+      return { cancel: true };
+    }
+
     // 1) Application du blocage pour ce site.
     if (pageHost && blocklist.has(pageHost)) {
       for (const motif of blocklist.get(pageHost)) {
@@ -616,6 +712,12 @@ browser.runtime.onMessage.addListener(function (msg, sender) {
     registre.clear();
     registreSale = true;
     return flushRegistre().then(function () { return { ok: true }; });
+  }
+  if (msg.kind === "set-utiq") {
+    blocUtiq = !!msg.value;
+    marquerPersist();
+    journaliser("utiq-protection", { active: blocUtiq });
+    return Promise.resolve({ ok: true, blocUtiq: blocUtiq });
   }
   if (msg.kind === "delete-cookie") {
     return supprimerCookie(msg.cookie);
@@ -848,7 +950,10 @@ async function construireEtatOnglet() {
     cookies: cookies,
     connexions: connexions,
     respawns: respawns,
-    blocs: blocs
+    blocs: blocs,
+    utiqHits: rec ? (rec.utiqHits || 0) : 0,
+    blocUtiq: blocUtiq,
+    utiqSite: !!(hotePage && utiqSites.has(hotePage))
   };
 }
 

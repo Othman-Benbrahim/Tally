@@ -104,6 +104,17 @@
 
     /* ── Consentement ────────────────────────────────────────────────────── */
     #section-consent { margin-bottom: 4px; }
+    #didomi-detected { font-size: 11px; color: var(--accent); margin-bottom: 6px; font-family: var(--mono); }
+    #utiq-warning {
+      padding: 8px 10px;
+      margin-bottom: 8px;
+      background: #3d1418;
+      color: var(--danger);
+      border: 1px solid var(--danger);
+      border-radius: 4px;
+      font-size: 12px;
+      font-weight: 600;
+    }
     .consent-row {
       display: flex;
       align-items: flex-start;
@@ -513,13 +524,14 @@
   <main>
     <div id="message">Chargement…</div>
 
-    <div id="section-consent" style="display:none;">
+    <div id="section-consent">
       <div class="section-title">Consentement</div>
+      <div id="didomi-detected" style="display:none;">Didomi détecté sur ce site.</div>
       <label class="consent-row">
         <input type="checkbox" id="consent-toggle" />
-        <span id="consent-label"></span>
+        <span id="consent-label">Refuser automatiquement le consentement (Didomi, OneTrust, Cookiebot, CookieYes, tarteaucitron) sur tous les sites</span>
       </label>
-      <div class="consent-hint" id="consent-hint">Refuse tout via l'API de la plateforme — refus réel, jamais une fausse acceptation.</div>
+      <div class="consent-hint" id="consent-hint">Pilote l'API Didomi pour refuser tout, avant l'affichage de la bannière. Refus réel, jamais une fausse acceptation. Sans effet sur les sites sans Didomi.</div>
     </div>
     <div id="section-signals" style="display:none;">
       <div class="section-title">Signaux de fingerprinting détectés</div>
@@ -562,6 +574,17 @@
       <div class="section-title">Connexions tierces</div>
       <div class="cookie-count-note" id="connexion-note"></div>
       <div id="connexion-list"></div>
+    </div>
+
+    <div id="section-utiq">
+      <div class="section-title">Pistage réseau (Utiq)</div>
+      <div id="utiq-warning" style="display:none;">⚠ Ce site utilise Utiq (traceur opérateur télécom).</div>
+      <label class="consent-row">
+        <input type="checkbox" id="utiq-toggle" />
+        <span id="utiq-label">Bloquer le pistage réseau Utiq (opérateurs télécom)</span>
+      </label>
+      <div class="consent-hint" id="utiq-hint">Règle intégrée : bloque les domaines Utiq, le script chargeur (même en first-party) et le CNAME cloaking. Ne casse aucun site.</div>
+      <div class="consent-hint" id="utiq-count"></div>
     </div>
 
     <div id="section-journal">

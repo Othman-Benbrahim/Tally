@@ -118,12 +118,15 @@ Extension distribuée sous **GPL-3.0**.
 ---
 
 ### Refus automatique de consentement (« patte blanche »)
-Sur les plateformes supportées, l'extension propose (opt-in, par site) de **refuser automatiquement** le consentement en pilotant l'**API officielle du CMP** — pas en fabriquant un cookie synthétique. Le CMP génère lui-même un consentement valide : aucun cookie malformé, refus réel, et l'on n'appelle jamais l'équivalent « tout accepter ».
+Refuse automatiquement le consentement (opt-in, **interrupteur global**) en pilotant l'**API officielle du CMP** — pas en fabriquant un cookie synthétique ni en bloquant le CMP au niveau réseau (ce qui casserait des sites). Le CMP génère lui-même un consentement valide : aucun cookie malformé, refus réel, et l'on n'appelle jamais l'équivalent « tout accepter ».
 
-- **Supporté :** `doctissimo.fr` (CMP **Didomi**, via `setUserDisagreeToAll()`).
-- N'agit que si un consentement est réellement à collecter (`shouldConsentBeCollected`), pour respecter un choix déjà exprimé.
-- Activation dans le popup (section « Consentement »), puis rechargement de la page.
-- Si l'API du CMP change ou est absente, le pilote ne fait rien (`try/catch`) — il ne casse jamais le site.
+- **Supportés (refus automatique) :** **Didomi** (`setUserDisagreeToAll()`), **OneTrust** (`RejectAll()` via `OptanonWrapper`), **Cookiebot** (`submitCustomConsent(false,false,false)`), **CookieYes** (`performBannerAction("reject")`), **tarteaucitron** (`userInterface.respondAll(false)`).
+- **Détectés mais non pilotables :** **Axeptio** (SDK en lecture seule + bannière souvent en iframe cross-origin) et **Sirdata** (fondé sur TCF). Le popup les signale « refus auto non disponible ». Le **TCF générique** (`__tcfapi`) n'expose aucune commande de refus dans la spec IAB — seule la lecture est possible — donc aucun refus programmatique standard n'existe.
+- Le pilote est injecté sur **tous les sites** mais **ne fait rien** là où aucun CMP connu n'est présent (il enregistre seulement des callbacks/écouteurs jamais déclenchés sans SDK).
+- N'agit que si aucun choix n'a déjà été fait (`shouldConsentBeCollected` / `IsAlertBoxClosed` / `hasResponse`), pour respecter un choix déjà exprimé.
+- Le popup signale quel CMP est détecté sur le site courant.
+- Activation globale dans le popup (section « Consentement »), puis rechargement.
+- Si l'API d'un CMP change ou est absente, le pilote ne fait rien (`try/catch`) — il ne casse jamais le site.
 
 ## Feuille de route
 

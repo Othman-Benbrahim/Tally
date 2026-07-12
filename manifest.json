@@ -1,7 +1,7 @@
 {
   "manifest_version": 2,
   "name": "Observatoire",
-  "version": "0.6.0",
+  "version": "0.8.0",
   "description": "Observatoire local de vie privée : détecte le fingerprinting, catégorise et supprime les cookies au cas par cas, repère les respawns et bloque leur réanimateur, journalise le tout de façon infalsifiable. N'envoie aucune donnée hors du navigateur.",
 
   "permissions": [
@@ -10,7 +10,8 @@
     "cookies",
     "webRequest",
     "webRequestBlocking",
-    "storage"
+    "storage",
+    "dns"
   ],
 
   "browser_action": {
@@ -32,7 +33,7 @@
       "match_about_blank": true
     },
     {
-      "matches": ["*://*.doctissimo.fr/*", "*://doctissimo.fr/*"],
+      "matches": ["<all_urls>"],
       "js": ["consent-didomi.js"],
       "run_at": "document_start",
       "all_frames": false

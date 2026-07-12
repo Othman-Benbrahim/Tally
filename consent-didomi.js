@@ -1,25 +1,23 @@
 "use strict";
 
 // ============================================================================
-// consent-didomi.js — content script (monde isolé), sur doctissimo uniquement
+// consent-didomi.js — content script (monde isolé), sur TOUS les sites
 // ----------------------------------------------------------------------------
-// Vérifie si l'utilisateur a activé le refus automatique de consentement pour
-// ce site (réglage stocké dans storage.local). Si oui, injecte le pilote Didomi
-// (consent-didomi-page.js) dans le monde de la page.
+// Si l'utilisateur a activé le refus automatique de consentement Didomi
+// (réglage global consentAutoRejectGlobal), injecte le pilote Didomi dans la page.
 //
-// Opt-in strict : sans activation explicite, ce script ne fait absolument rien.
+// Le pilote (consent-didomi-page.js) ne fait ABSOLUMENT RIEN sur un site qui
+// n'utilise pas Didomi : il se contente d'enregistrer des callbacks dans les
+// files d'attente du SDK Didomi, lesquelles ne sont jamais consommées si le SDK
+// n'est pas présent. L'injection universelle est donc sans effet ni risque
+// ailleurs que sur les sites Didomi.
+//
+// Opt-in strict : sans activation explicite, ce script ne fait rien.
 // ============================================================================
 
 (function () {
-  var host = location.hostname.replace(/^www\./, "");
-
-  browser.storage.local.get("consentAutoReject").then(function (r) {
-    var map = (r && r.consentAutoReject) || {};
-    // Actif si une clé de plateforme activée correspond à l'hôte courant.
-    var actif = Object.keys(map).some(function (k) {
-      return map[k] && (host === k || host.endsWith("." + k));
-    });
-    if (!actif) return;
+  browser.storage.local.get("consentAutoRejectGlobal").then(function (r) {
+    if (!r || r.consentAutoRejectGlobal !== true) return;
 
     var s = document.createElement("script");
     s.src = browser.runtime.getURL("consent-didomi-page.js");

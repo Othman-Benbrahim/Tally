@@ -1,44 +1,138 @@
 "use strict";
 
 // ============================================================================
-// consent-didomi-page.js — s'exécute dans le MONDE DE LA PAGE
+// consent-didomi-page.js — pilote de REFUS de consentement (monde de la page)
 // ----------------------------------------------------------------------------
-// Pilote l'API officielle de Didomi pour REFUSER tout consentement, au lieu de
-// fabriquer un cookie synthétique (fragile et cassable). C'est Didomi qui
-// génère alors un consentement valide -> aucun cookie malformé, refus réel.
+// Pilote l'API officielle des CMP pour REFUSER tout consentement, sans jamais
+// fabriquer de cookie synthétique ni bloquer le CMP au niveau réseau. Le CMP
+// génère lui-même un consentement valide -> aucun cookie malformé, refus réel.
 //
-// On n'appelle JAMAIS setUserAgreeToAll : on refuse, on ne feint jamais
-// d'accepter. On n'agit que si un consentement est réellement à collecter
-// (shouldConsentBeCollected), pour respecter un choix déjà fait par l'utilisateur.
+// Couvre quatre CMP (nom de fichier historique, contenu généralisé) :
+//   • Didomi    — setUserDisagreeToAll(), via didomiOnReady / notice.shown
+//   • OneTrust  — OneTrust.RejectAll(), via OptanonWrapper + IsAlertBoxClosed
+//   • Cookiebot — submitCustomConsent(false,false,false), via CookiebotOnDialogDisplay
+//   • CookieYes — performBannerAction("reject"), quand la bannière est affichée
+//   • tarteaucitron — userInterface.respondAll(false), quand la bannière est affichée
 //
-// Injecté uniquement si l'utilisateur a activé l'option pour ce site (opt-in).
+// Règles communes :
+//   - On REFUSE, jamais on ne feint d'accepter.
+//   - On n'agit que si aucun choix n'a déjà été fait (respect du choix manuel).
+//   - Tout est en try/catch : si une API change ou est absente, on ne casse rien.
+//   - Ne fait ABSOLUMENT RIEN sur un site sans CMP connu.
+//
+// Injecté sur toutes les pages uniquement si l'utilisateur a activé l'option.
 // ============================================================================
 
 (function () {
 
-  function refuserSiNecessaire(Didomi) {
+  var fait = { didomi: false, onetrust: false, cookiebot: false, cookieyes: false, tarteaucitron: false };
+
+  // ── DIDOMI ────────────────────────────────────────────────────────────────
+  function didomiRefuse(Didomi) {
     try {
-      var api = Didomi || (typeof window.Didomi !== "undefined" ? window.Didomi : null);
+      var api = Didomi || window.Didomi;
       if (!api || typeof api.setUserDisagreeToAll !== "function") return;
-      // shouldConsentBeCollected() est vrai quand la bannière doit s'afficher
-      // (consentement neuf ou expiré). Faux si l'utilisateur a déjà choisi.
       if (typeof api.shouldConsentBeCollected === "function" && !api.shouldConsentBeCollected()) return;
       api.setUserDisagreeToAll();
-    } catch (e) { /* si l'API change ou est absente : on ne casse rien */ }
+      fait.didomi = true;
+    } catch (e) {}
+  }
+  window.didomiEventListeners = window.didomiEventListeners || [];
+  window.didomiEventListeners.push({ event: "notice.shown", listener: function () { didomiRefuse(null); } });
+  window.didomiOnReady = window.didomiOnReady || [];
+  window.didomiOnReady.push(function (Didomi) { didomiRefuse(Didomi); });
+
+  // ── ONETRUST ────────────────────────────────────────────────────────────────
+  // OneTrust appelle window.OptanonWrapper au chargement et à chaque changement.
+  // On chaîne l'éventuel wrapper du site, et on refuse une fois si aucun choix
+  // valide n'a été fait. NB : le site peut redéfinir OptanonWrapper après nous —
+  // c'est pourquoi le sondage plus bas appelle aussi RejectAll directement.
+  function onetrustRefuse() {
+    try {
+      if (fait.onetrust) return;
+      if (typeof OneTrust === "undefined" || typeof OneTrust.RejectAll !== "function") return;
+      var clos = (typeof OneTrust.IsAlertBoxClosed === "function") ? OneTrust.IsAlertBoxClosed() : false;
+      if (clos) return; // un choix a déjà été fait
+      fait.onetrust = true;
+      OneTrust.RejectAll();
+    } catch (e) {}
+  }
+  var wrapperPrecedent = window.OptanonWrapper;
+  window.OptanonWrapper = function () {
+    try { if (typeof wrapperPrecedent === "function") wrapperPrecedent.apply(this, arguments); } catch (e) {}
+    onetrustRefuse();
+  };
+
+  // ── COOKIEBOT ─────────────────────────────────────────────────────────────
+  function cookiebotRefuse() {
+    try {
+      if (fait.cookiebot) return;
+      var cb = window.Cookiebot || window.CookieConsent;
+      if (!cb || typeof cb.submitCustomConsent !== "function") return;
+      if (cb.hasResponse) return; // un choix a déjà été fait
+      fait.cookiebot = true;
+      // Refuse préférences, statistiques, marketing (nécessaires toujours actifs).
+      cb.submitCustomConsent(false, false, false);
+    } catch (e) {}
+  }
+  window.addEventListener("CookiebotOnDialogDisplay", cookiebotRefuse);
+  window.addEventListener("CookiebotOnLoad", cookiebotRefuse);
+  window.addEventListener("CookiebotOnConsentReady", cookiebotRefuse);
+
+  // ── COOKIEYES ───────────────────────────────────────────────────────────────
+  // CookieYes expose performBannerAction("reject"). On ne refuse que si la
+  // bannière est réellement affichée (aucun choix encore fait), pour respecter
+  // un choix manuel déjà exprimé.
+  function cookieyesBanniereVisible() {
+    var el = document.querySelector(
+      ".cky-consent-bar, .cky-modal, .cky-consent-container, [data-cky-tag='notice'], [class*='cky-consent']"
+    );
+    if (!el) return false;
+    var st = window.getComputedStyle(el);
+    return !!st && st.display !== "none" && st.visibility !== "hidden";
+  }
+  function cookieyesRefuse() {
+    try {
+      if (fait.cookieyes) return;
+      if (typeof window.performBannerAction !== "function") return;
+      if (!cookieyesBanniereVisible()) return; // pas de bannière => déjà décidé
+      fait.cookieyes = true;
+      window.performBannerAction("reject");
+    } catch (e) {}
   }
 
-  // 1) Le plus tôt possible : dès que la bannière est montrée.
-  //    (à enregistrer HORS de didomiOnReady pour ne pas manquer notice.shown)
-  window.didomiEventListeners = window.didomiEventListeners || [];
-  window.didomiEventListeners.push({
-    event: "notice.shown",
-    listener: function () { refuserSiNecessaire(null); }
-  });
+  // ── TARTEAUCITRON ────────────────────────────────────────────────────────────
+  // Open-source. respondAll(false) refuse tous les services. On ne refuse que si
+  // la grande bannière est affichée (aucun choix encore fait).
+  function tarteaucitronBanniereVisible() {
+    var el = document.getElementById("tarteaucitronAlertBig");
+    if (!el) return false;
+    var st = window.getComputedStyle(el);
+    return !!st && st.display !== "none" && st.visibility !== "hidden";
+  }
+  function tarteaucitronRefuse() {
+    try {
+      if (fait.tarteaucitron) return;
+      var t = window.tarteaucitron;
+      if (!t || !t.userInterface || typeof t.userInterface.respondAll !== "function") return;
+      if (!tarteaucitronBanniereVisible()) return; // pas de bannière => déjà décidé
+      fait.tarteaucitron = true;
+      t.userInterface.respondAll(false);
+    } catch (e) {}
+  }
+  window.addEventListener("tac.root_available", tarteaucitronRefuse);
 
-  // 2) Voie robuste : quand le SDK est prêt (fonctionne même si on a été injecté
-  //    après notice.shown, car les callbacks poussés sont exécutés à l'init —
-  //    ou immédiatement si le SDK est déjà prêt).
-  window.didomiOnReady = window.didomiOnReady || [];
-  window.didomiOnReady.push(function (Didomi) { refuserSiNecessaire(Didomi); });
+  // ── Filet de sécurité ──────────────────────────────────────────────────────
+  // Couvre les injections tardives et le cas où le site redéfinit OptanonWrapper
+  // après nous. On sonde brièvement la présence des CMP, puis on s'arrête.
+  var essais = 0;
+  var sonde = setInterval(function () {
+    essais++;
+    onetrustRefuse();
+    cookiebotRefuse();
+    cookieyesRefuse();
+    tarteaucitronRefuse();
+    if (essais >= 40 || (fait.onetrust && fait.cookiebot && fait.cookieyes && fait.tarteaucitron)) clearInterval(sonde);
+  }, 500); // ~20 s max
 
 })();

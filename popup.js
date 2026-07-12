@@ -59,6 +59,10 @@ const elCxList      = document.getElementById("connexion-list");
 const elJournalInfo = document.getElementById("journal-info");
 const elJournalSeal = document.getElementById("journal-seal");
 const btnExportJournal = document.getElementById("btn-export-journal");
+const elSectionUtiq    = document.getElementById("section-utiq");
+const elUtiqToggle     = document.getElementById("utiq-toggle");
+const elUtiqCount      = document.getElementById("utiq-count");
+const elUtiqWarning    = document.getElementById("utiq-warning");
 const elSectionConsent = document.getElementById("section-consent");
 const elConsentToggle  = document.getElementById("consent-toggle");
 const elConsentLabel   = document.getElementById("consent-label");
@@ -66,10 +70,6 @@ const elConsentHint    = document.getElementById("consent-hint");
 const elSectionFp      = document.getElementById("section-fpprotect");
 const elFpToggle       = document.getElementById("fp-toggle");
 const elFpHint         = document.getElementById("fp-hint");
-
-// Plateformes de consentement supportées (hôte -> nom du CMP).
-// Le refus automatique n'est proposé que sur ces sites, et reste opt-in.
-const PLATEFORMES_CONSENT = { "doctissimo.fr": "Didomi" };
 
 // Hôte de la page courante, mémorisé pour les actions bloquer/débloquer.
 let currentPageHost = null;
@@ -197,8 +197,34 @@ function render(state) {
   renderRespawns(state.respawns || []);
   renderBlocs(state.blocs || []);
   renderConnexions(state.connexions || []);
-  renderConsent();
+  renderConsent(state);
   renderFpProtect();
+  renderUtiq(state);
+}
+
+
+// ── Pistage réseau Utiq (blocage intégré, global) ───────────────────────────
+function renderUtiq(state) {
+  elSectionUtiq.style.display = "block";
+  elUtiqToggle.checked = (state.blocUtiq !== false);
+
+  // Bandeau : ce site est connu pour utiliser Utiq (détecté par observation).
+  if (elUtiqWarning) elUtiqWarning.style.display = state.utiqSite ? "block" : "none";
+
+  var hits = state.utiqHits || 0;
+  elUtiqCount.textContent = hits > 0
+    ? "⛔ " + hits + " requête" + (hits > 1 ? "s" : "") + " Utiq bloquée" + (hits > 1 ? "s" : "") + " sur cette page."
+    : "";
+
+  elUtiqToggle.onchange = function () {
+    browser.runtime.sendMessage({ kind: "set-utiq", value: elUtiqToggle.checked })
+      .then(function () {
+        elUtiqCount.textContent = elUtiqToggle.checked
+          ? "Activé — recharge les pages pour l'appliquer partout."
+          : "Désactivé.";
+      })
+      .catch(function (e) { afficherErreur("Réglage Utiq impossible : " + (e && e.message ? e.message : e)); });
+  };
 }
 
 
@@ -231,39 +257,51 @@ function renderFpProtect() {
 }
 
 
-// ── Consentement (refus automatique via l'API du CMP, opt-in, par site) ─────
-function plateformeConsent(host) {
-  if (!host) return null;
-  for (const k in PLATEFORMES_CONSENT) {
-    if (host === k || host.endsWith("." + k)) return { key: k, cmp: PLATEFORMES_CONSENT[k] };
+// ── Consentement : refus automatique (global, opt-in) — Didomi/OneTrust/Cookiebot
+function renderConsent(state) {
+  // Détection du CMP présent sur ce site via les connexions observées.
+  // pilote:true = refus automatique disponible ; false = détecté seulement.
+  var CMP_HOTES = [
+    { cmp: "Didomi",    pilote: true,  re: /(^|\.)privacy-center\.org$/ },
+    { cmp: "OneTrust",  pilote: true,  re: /(^|\.)(cookielaw\.org|onetrust\.com)$/ },
+    { cmp: "Cookiebot", pilote: true,  re: /(^|\.)cookiebot\.com$/ },
+    { cmp: "CookieYes", pilote: true,  re: /(^|[.-])cookieyes\.com$/ },
+    { cmp: "Axeptio",   pilote: false, re: /(^|\.)(axept\.io|axeptio\.eu)$/ },
+    { cmp: "Sirdata",   pilote: false, re: /(^|\.)(sddan\.com|sirdata\.com)$/ }
+  ];
+  var cmpTrouve = null;
+  var connexions = (state && state.connexions) || [];
+  for (var i = 0; i < connexions.length && !cmpTrouve; i++) {
+    var h = (connexions[i].host || "").toLowerCase();
+    for (var j = 0; j < CMP_HOTES.length; j++) {
+      if (CMP_HOTES[j].re.test(h)) { cmpTrouve = CMP_HOTES[j]; break; }
+    }
   }
-  return null;
-}
+  var det = document.getElementById("didomi-detected");
+  if (det) {
+    if (cmpTrouve) {
+      det.textContent = cmpTrouve.cmp + " détecté sur ce site"
+        + (cmpTrouve.pilote ? "." : " — refus auto non disponible.");
+    } else {
+      det.textContent = "";
+    }
+    det.style.display = cmpTrouve ? "block" : "none";
+  }
 
-function renderConsent() {
-  const p = plateformeConsent(currentPageHost);
-  if (!p) { elSectionConsent.style.display = "none"; return; }
-
-  elSectionConsent.style.display = "block";
-  elConsentLabel.textContent = "Refuser automatiquement le consentement (" + p.cmp + ") sur " + p.key;
-
-  browser.storage.local.get("consentAutoReject").then(function (r) {
-    const map = (r && r.consentAutoReject) || {};
-    elConsentToggle.checked = !!map[p.key];
+  browser.storage.local.get("consentAutoRejectGlobal").then(function (r) {
+    elConsentToggle.checked = !!(r && r.consentAutoRejectGlobal);
   }).catch(function () {});
 
   elConsentToggle.onchange = function () {
-    browser.storage.local.get("consentAutoReject").then(function (r) {
-      const map = (r && r.consentAutoReject) || {};
-      map[p.key] = elConsentToggle.checked;
-      return browser.storage.local.set({ consentAutoReject: map });
-    }).then(function () {
-      elConsentHint.textContent = elConsentToggle.checked
-        ? "Activé — recharge la page pour l'appliquer (refus réel via " + p.cmp + ")."
-        : "Désactivé — recharge la page.";
-    }).catch(function (e) {
-      afficherErreur("Réglage impossible : " + (e && e.message ? e.message : e));
-    });
+    browser.storage.local.set({ consentAutoRejectGlobal: elConsentToggle.checked })
+      .then(function () {
+        elConsentHint.textContent = elConsentToggle.checked
+          ? "Activé — recharge les pages. Le consentement sera refusé automatiquement, avant la bannière."
+          : "Désactivé — recharge les pages.";
+      })
+      .catch(function (e) {
+        afficherErreur("Réglage impossible : " + (e && e.message ? e.message : e));
+      });
   };
 }
 
