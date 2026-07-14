@@ -63,6 +63,13 @@ const elSectionUtiq    = document.getElementById("section-utiq");
 const elUtiqToggle     = document.getElementById("utiq-toggle");
 const elUtiqCount      = document.getElementById("utiq-count");
 const elUtiqWarning    = document.getElementById("utiq-warning");
+const elSectionWebmail = document.getElementById("section-webmail");
+const elWebmailCount   = document.getElementById("webmail-count");
+const elWebmailActive  = document.getElementById("webmail-active");
+const elWebmailOptin   = document.getElementById("webmail-optin-zone");
+const elWebmailStrict  = document.getElementById("webmail-strict");
+const elWebmailMaster  = document.getElementById("webmail-master");
+const btnWebmailOptin  = document.getElementById("btn-webmail-optin");
 const elSectionConsent = document.getElementById("section-consent");
 const elConsentToggle  = document.getElementById("consent-toggle");
 const elConsentLabel   = document.getElementById("consent-label");
@@ -200,6 +207,61 @@ function render(state) {
   renderConsent(state);
   renderFpProtect();
   renderUtiq(state);
+  renderWebmail(state);
+}
+
+
+// ── Pixels e-mail : protection sur les webmails ─────────────────────────────
+function renderWebmail(state) {
+  var host = currentPageHost || "";
+  // On montre la section sur un webmail (connu ou opt-in), ou sur un hôte qui
+  // "ressemble" à un webmail (pour proposer l'opt-in) — jamais partout.
+  var mailish = /mail|webmail|zimbra|courrier|messagerie/i.test(host);
+  var montrer = state.estWebmail || mailish;
+  elSectionWebmail.style.display = montrer ? "block" : "none";
+  if (!montrer) return;
+
+  elWebmailMaster.checked = (state.protectionWebmail !== false);
+
+  var hits = state.pixelHits || 0;
+  elWebmailCount.textContent = hits > 0
+    ? "⛔ " + hits + " image" + (hits > 1 ? "s" : "") + " tierce" + (hits > 1 ? "s" : "")
+      + " bloquée" + (hits > 1 ? "s" : "") + " sur cette page."
+    : "";
+
+  if (state.estWebmail) {
+    elWebmailActive.style.display = "block";
+    elWebmailOptin.style.display = "none";
+    elWebmailStrict.checked = !!state.webmailStrict;
+  } else {
+    elWebmailActive.style.display = "none";
+    elWebmailOptin.style.display = "block";
+  }
+
+  elWebmailMaster.onchange = function () {
+    browser.runtime.sendMessage({ kind: "set-webmail-protection", value: elWebmailMaster.checked })
+      .catch(function (e) { afficherErreur("Réglage impossible : " + (e && e.message ? e.message : e)); });
+  };
+
+  elWebmailStrict.onchange = function () {
+    browser.runtime.sendMessage({ kind: "set-webmail-strict", host: host, value: elWebmailStrict.checked })
+      .then(function () {
+        elWebmailCount.textContent = elWebmailStrict.checked
+          ? "Mode strict activé — recharge la page. Toutes les images distantes seront coupées."
+          : "Mode chirurgical — recharge la page. Seuls les pixels traceurs connus sont bloqués.";
+      })
+      .catch(function (e) { afficherErreur("Réglage impossible : " + (e && e.message ? e.message : e)); });
+  };
+
+  btnWebmailOptin.onclick = function () {
+    browser.runtime.sendMessage({ kind: "webmail-optin", host: host })
+      .then(function () {
+        elWebmailOptin.style.display = "none";
+        elWebmailActive.style.display = "block";
+        elWebmailCount.textContent = "Site traité comme webmail — recharge la page pour activer la protection.";
+      })
+      .catch(function (e) { afficherErreur("Opt-in impossible : " + (e && e.message ? e.message : e)); });
+  };
 }
 
 

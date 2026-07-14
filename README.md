@@ -117,6 +117,13 @@ Extension distribuée sous **GPL-3.0**.
 
 ---
 
+### Pixels e-mail (webmails)
+Sur les pages de webmail (liste connue + opt-in par site), l'extension bloque les images tierces traçantes — les « pixels espions » qui signalent l'ouverture d'un mail (cf. recommandation CNIL sur le suivi par pixel). Deux intensités, par site :
+- **Chirurgical (défaut)** : ne bloque que les images tierces dont le domaine est un traceur connu (base Disconnect : email / publicité / analytics). Sûr — ne touche jamais l'interface. Inhérent : aveugle si le webmail relaie les images (Gmail via `googleusercontent`).
+- **Strict (opt-in par site)** : bloque toutes les images tierces. Radical — peut couper des images de newsletter. Pour les cas où le chirurgical est aveugle.
+
+Les images same-site (interface, avatars, pièces jointes) ne sont jamais bloquées. Sur un site non reconnu, un bouton « Traiter ce site comme un webmail » active la protection au cas par cas. Interrupteur maître dans le popup. Compteur d'images bloquées par page.
+
 ### Refus automatique de consentement (« patte blanche »)
 Refuse automatiquement le consentement (opt-in, **interrupteur global**) en pilotant l'**API officielle du CMP** — pas en fabriquant un cookie synthétique ni en bloquant le CMP au niveau réseau (ce qui casserait des sites). Le CMP génère lui-même un consentement valide : aucun cookie malformé, refus réel, et l'on n'appelle jamais l'équivalent « tout accepter ».
 

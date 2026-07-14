@@ -587,6 +587,29 @@
       <div class="consent-hint" id="utiq-count"></div>
     </div>
 
+    <div id="section-webmail" style="display:none;">
+      <div class="section-title">Pixels e-mail</div>
+      <div class="consent-hint" id="webmail-count"></div>
+
+      <div id="webmail-active" style="display:none;">
+        <label class="consent-row">
+          <input type="checkbox" id="webmail-strict" />
+          <span>Bloquer toutes les images distantes (strict)</span>
+        </label>
+        <div class="consent-hint">Radical : coupe aussi les images de newsletter. Par défaut, seuls les pixels traceurs connus sont bloqués. Effet au rechargement.</div>
+      </div>
+
+      <div id="webmail-optin-zone" style="display:none;">
+        <button id="btn-webmail-optin" class="btn-block-cx">Traiter ce site comme un webmail</button>
+        <div class="consent-hint">Active la protection anti-pixels sur ce site (blocage des images tierces traçantes). Effet au rechargement.</div>
+      </div>
+
+      <label class="consent-row">
+        <input type="checkbox" id="webmail-master" />
+        <span>Protection pixels e-mail activée</span>
+      </label>
+    </div>
+
     <div id="section-journal">
       <div class="section-title">Journal d'intégrité</div>
       <div id="journal-status">
